@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useCallback } from 'react';
-import { GameState, GAME_WIDTH, GAME_HEIGHT, Lane, LANE_HEIGHT, LANE_START_Y, PLAYER_X, Entity, Player, Particle } from '../types';
+import { GameState, GAME_WIDTH, GAME_HEIGHT, Lane, LANE_HEIGHT, LANE_START_Y, PLAYER_X, Entity, Player, Particle, SceneryEntity } from '../types';
 import { THEMES, INITIAL_SPEED, MAX_SPEED, LANE_SWITCH_SPEED, ACCELERATION, SAFE_ZONE, STAGE_LENGTH } from '../constants';
 import { useInput } from '../hooks/useInput';
 import { playSound } from '../utils/audio';
@@ -12,6 +12,7 @@ interface GameCanvasProps {
   setCoins: (coins: number) => void;
   onLifeLost: () => void;
   lives: number;
+  gameSessionId: number;
 }
 
 // Utility to lerp between hex colors
@@ -31,7 +32,7 @@ const lerpColor = (a: string, b: string, amount: number): string => {
   return `#${rr}${rg}${rb}`;
 };
 
-export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState, setScore, setCoins, onLifeLost, lives }) => {
+export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState, setScore, setCoins, onLifeLost, lives, gameSessionId }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>();
   const getInput = useInput();
@@ -51,8 +52,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
   
   const obstaclesRef = useRef<Entity[]>([]);
   const particlesRef = useRef<Particle[]>([]);
+  const sceneryRef = useRef<SceneryEntity[]>([]);
   const frameCountRef = useRef(0);
   const nextSpawnDistanceRef = useRef(SAFE_ZONE);
+  const nextScenerySpawnRef = useRef(0);
   
   // Theme State - Initialize with first theme
   const currentThemeRef = useRef({ ...THEMES[0] });
@@ -72,22 +75,91 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
     };
     obstaclesRef.current = [];
     particlesRef.current = [];
+    sceneryRef.current = [];
     frameCountRef.current = 0;
     currentThemeRef.current = { ...THEMES[0] };
     playerRef.current.distance = 0; 
     nextSpawnDistanceRef.current = SAFE_ZONE;
+    nextScenerySpawnRef.current = 0;
     setScore(0);
     setCoins(0);
   }, [setScore, setCoins]);
 
-  
+  // Reset logic is now strictly tied to the session ID provided by App.tsx
   useEffect(() => {
-    if (gameState === GameState.PLAYING && lives === 3) {
-      if (playerRef.current.distance === 0 || lives === 3) {
-         resetGame();
+    resetGame();
+  }, [gameSessionId, resetGame]);
+
+  const spawnScenery = () => {
+      // Scenery spawn logic (Parallax background)
+      if (nextScenerySpawnRef.current > 0) {
+          nextScenerySpawnRef.current -= (playerRef.current.speed * 0.5); // Parallax factor
+          return;
       }
-    }
-  }, [gameState, lives, resetGame]);
+
+      const spawnX = GAME_WIDTH + 100;
+      const groundY = LANE_START_Y - 20; // Grounded position
+      
+      const typeRoll = Math.random();
+      
+      if (typeRoll < 0.45) {
+          // HOUSE
+          const houseWidth = 140 + Math.random() * 40;
+          const hasGarage = Math.random() > 0.5;
+          const totalWidth = houseWidth + (hasGarage ? 70 : 0);
+          
+          sceneryRef.current.push({
+              x: spawnX,
+              y: groundY, 
+              width: totalWidth,
+              height: 90 + Math.random() * 30,
+              color: ['#ffefc5', '#ffeaa7', '#fab1a0', '#74b9ff', '#a29bfe'][Math.floor(Math.random()*5)],
+              type: 'house',
+              details: {
+                  roofColor: ['#ff7675', '#6c5ce7', '#e17055', '#2d3436'][Math.floor(Math.random()*4)],
+                  hasGarage,
+                  doorColor: '#d63031'
+              }
+          });
+          
+          // Maybe spawn a car in driveway
+          if (hasGarage && Math.random() > 0.3) {
+              sceneryRef.current.push({
+                  x: spawnX + houseWidth + 5,
+                  y: groundY + 10, // Slightly forward
+                  width: 55,
+                  height: 25,
+                  color: ['#0984e3', '#d63031', '#00b894'][Math.floor(Math.random()*3)],
+                  type: 'car',
+                  details: { carColor: 'white' } 
+              });
+          }
+          
+          // Mailbox
+          sceneryRef.current.push({
+              x: spawnX - 25,
+              y: groundY + 10,
+              width: 10,
+              height: 25,
+              color: '#fff',
+              type: 'mailbox'
+          });
+
+          nextScenerySpawnRef.current = totalWidth + 120 + Math.random() * 250;
+
+      } else {
+          // TREE
+          sceneryRef.current.push({
+              x: spawnX,
+              y: groundY,
+              width: 50 + Math.random() * 30,
+              height: 100 + Math.random() * 50,
+              color: '#00b894',
+              type: 'tree'
+          });
+           nextScenerySpawnRef.current = 100 + Math.random() * 150;
+      }
+  };
 
   const spawnPattern = () => {
     if (playerRef.current.distance < nextSpawnDistanceRef.current) return;
@@ -117,7 +189,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
          else if (r > 0.4) type = 'crate';
          else if (r > 0.2) type = 'barrier';
          else type = 'cone';
-      } else if (theme.name === 'Sunny Village') {
+      } else if (theme.name === 'Sunny Village' || theme.name === 'Idyllic Suburbia') {
          if (r > 0.7) type = 'crate';
          else if (r > 0.4) type = 'rock';
          else type = 'cone';
@@ -320,7 +392,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
 
     // Emit Smoke (Coordinate adjusted for new truck design)
     if (frameCountRef.current % 5 === 0) {
-      createSmoke(PLAYER_X + 125, player.y - 25 + player.bounce); 
+      // Adjusted for Cute Truck stack position
+      createSmoke(PLAYER_X + 110, player.y - 50 + player.bounce); 
     }
 
     // Update Particles
@@ -331,6 +404,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
       p.life--;
       p.size *= 0.95; 
       if (p.life <= 0) particlesRef.current.splice(i, 1);
+    }
+    
+    // Update Scenery (Parallax)
+    spawnScenery();
+    for (let i = sceneryRef.current.length - 1; i >= 0; i--) {
+        const sc = sceneryRef.current[i];
+        sc.x -= player.speed * 0.5; // Move slower than road
+        if (sc.x + sc.width < -100) sceneryRef.current.splice(i, 1);
     }
 
     // Spawn Patterns
@@ -348,10 +429,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
       
       // Collision Logic
       const playerBox = { 
-        l: PLAYER_X + 25, 
-        r: PLAYER_X + 175, 
-        t: player.y + 35, 
-        b: player.y + 85
+        l: PLAYER_X + 10, 
+        r: PLAYER_X + 160, 
+        t: player.y + 20, 
+        b: player.y + 80
       };
       
       const obBox = {
@@ -415,6 +496,120 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
     ctx.fill();
   };
 
+  const drawScenery = (ctx: CanvasRenderingContext2D) => {
+      // Draw background scenery behind the road
+      sceneryRef.current.forEach(sc => {
+          ctx.save();
+          
+          // Shadow for all scenery
+          ctx.fillStyle = 'rgba(0,0,0,0.1)';
+          ctx.beginPath();
+          ctx.ellipse(sc.x + sc.width/2, sc.y, sc.width/2 + 10, 8, 0, 0, Math.PI*2);
+          ctx.fill();
+
+          if (sc.type === 'house') {
+              // Body
+              ctx.fillStyle = sc.color;
+              drawRoundedRect(ctx, sc.x, sc.y - sc.height, sc.width, sc.height, 4);
+              
+              // Roof (Varied)
+              ctx.fillStyle = sc.details?.roofColor || '#333';
+              ctx.beginPath();
+              if (sc.width > 180) {
+                 // Trapezoid roof for wide houses
+                 ctx.moveTo(sc.x - 10, sc.y - sc.height);
+                 ctx.lineTo(sc.x + sc.width + 10, sc.y - sc.height);
+                 ctx.lineTo(sc.x + sc.width - 20, sc.y - sc.height - 40);
+                 ctx.lineTo(sc.x + 20, sc.y - sc.height - 40);
+              } else {
+                 // Triangle roof
+                 ctx.moveTo(sc.x - 10, sc.y - sc.height);
+                 ctx.lineTo(sc.x + sc.width + 10, sc.y - sc.height);
+                 ctx.lineTo(sc.x + sc.width / 2, sc.y - sc.height - 50);
+              }
+              ctx.fill();
+              
+              // Chimney
+              ctx.fillStyle = '#636e72';
+              ctx.fillRect(sc.x + 20, sc.y - sc.height - 30, 15, 25);
+              
+              // Door
+              ctx.fillStyle = '#fff'; // Frame
+              ctx.fillRect(sc.x + sc.width/2 - 17, sc.y - 42, 34, 42);
+              ctx.fillStyle = sc.details?.doorColor || '#d63031';
+              ctx.fillRect(sc.x + sc.width/2 - 15, sc.y - 40, 30, 40);
+              // Knob
+              ctx.fillStyle = '#fdcb6e';
+              ctx.beginPath(); ctx.arc(sc.x + sc.width/2 + 8, sc.y - 20, 3, 0, Math.PI*2); ctx.fill();
+
+              // Windows
+              const drawWindow = (wx: number, wy: number) => {
+                  ctx.fillStyle = '#fff'; // Frame
+                  ctx.fillRect(wx - 2, wy - 2, 34, 34);
+                  ctx.fillStyle = '#74b9ff'; // Glass
+                  ctx.fillRect(wx, wy, 30, 30);
+                  ctx.fillStyle = '#fff'; // Bars
+                  ctx.fillRect(wx + 13, wy, 4, 30);
+                  ctx.fillRect(wx, wy + 13, 30, 4);
+                  // Reflection
+                  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+                  ctx.beginPath(); ctx.moveTo(wx, wy+30); ctx.lineTo(wx+20, wy); ctx.lineTo(wx+30, wy); ctx.lineTo(wx+10, wy+30); ctx.fill();
+              };
+
+              drawWindow(sc.x + 20, sc.y - sc.height + 20);
+              drawWindow(sc.x + sc.width - 50, sc.y - sc.height + 20);
+              
+              // Garage
+              if (sc.details?.hasGarage) {
+                  ctx.fillStyle = '#b2bec3';
+                  drawRoundedRect(ctx, sc.x + sc.width - 75, sc.y - 50, 70, 50, 2);
+                  // Garage lines
+                  ctx.fillStyle = 'rgba(0,0,0,0.1)';
+                  for(let i=1; i<5; i++) {
+                      ctx.fillRect(sc.x + sc.width - 75, sc.y - 50 + (i*10), 70, 2);
+                  }
+              }
+          } else if (sc.type === 'tree') {
+              // Trunk
+              ctx.fillStyle = '#a0522d'; // Sienna
+              ctx.beginPath();
+              ctx.moveTo(sc.x + sc.width/2 - 8, sc.y - 40);
+              ctx.lineTo(sc.x + sc.width/2 + 8, sc.y - 40);
+              ctx.lineTo(sc.x + sc.width/2 + 12, sc.y);
+              ctx.lineTo(sc.x + sc.width/2 - 12, sc.y);
+              ctx.fill();
+              
+              // Foliage - Fluffy cluster
+              ctx.fillStyle = sc.color;
+              const r = sc.width/2;
+              const cy = sc.y - 60;
+              ctx.beginPath(); ctx.arc(sc.x + sc.width/2, cy - 20, r, 0, Math.PI*2); ctx.fill();
+              ctx.beginPath(); ctx.arc(sc.x + sc.width/2 - 15, cy + 10, r * 0.8, 0, Math.PI*2); ctx.fill();
+              ctx.beginPath(); ctx.arc(sc.x + sc.width/2 + 15, cy + 10, r * 0.8, 0, Math.PI*2); ctx.fill();
+              
+          } else if (sc.type === 'mailbox') {
+              ctx.fillStyle = '#636e72'; // Post
+              ctx.fillRect(sc.x, sc.y - 20, 5, 20);
+              ctx.fillStyle = '#fff'; // Box
+              drawRoundedRect(ctx, sc.x - 5, sc.y - 30, 20, 12, 4);
+              ctx.fillStyle = '#d63031'; // Flag
+              ctx.fillRect(sc.x + 10, sc.y - 35, 2, 10);
+              ctx.fillRect(sc.x + 10, sc.y - 35, 8, 5);
+
+          } else if (sc.type === 'car') {
+              ctx.fillStyle = sc.color;
+              drawRoundedRect(ctx, sc.x, sc.y - 20, 60, 20, 4); // body
+              ctx.fillStyle = '#81ecec';
+              drawRoundedRect(ctx, sc.x + 10, sc.y - 30, 40, 15, 4); // cabin
+              // wheels
+              ctx.fillStyle = '#2d3436';
+              ctx.beginPath(); ctx.arc(sc.x + 15, sc.y - 5, 8, 0, Math.PI*2); ctx.fill();
+              ctx.beginPath(); ctx.arc(sc.x + 45, sc.y - 5, 8, 0, Math.PI*2); ctx.fill();
+          }
+          ctx.restore();
+      });
+  };
+
   const draw = (ctx: CanvasRenderingContext2D) => {
     const theme = currentThemeRef.current; // Use the interpolated theme
     const player = playerRef.current;
@@ -423,11 +618,21 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
     ctx.fillStyle = theme.sky;
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // 2. Ground 
+    // 2. Parallax Scenery Layer
+    // Ground strip for scenery (Lawn/Sidewalk)
+    ctx.fillStyle = theme.details; // Bushes color, usually green
+    ctx.fillRect(0, LANE_START_Y - 30, GAME_WIDTH, 40);
+    // Bevel
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.fillRect(0, LANE_START_Y + 5, GAME_WIDTH, 5);
+
+    drawScenery(ctx);
+
+    // 3. Ground (Foreground)
     ctx.fillStyle = theme.ground;
     ctx.fillRect(0, LANE_START_Y, GAME_WIDTH, GAME_HEIGHT - LANE_START_Y);
 
-    // 3. Road 
+    // 4. Road 
     const roadHeight = LANE_HEIGHT * 3;
     const roadY = LANE_START_Y;
     
@@ -452,7 +657,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
       if (x + 80 > 0) ctx.fillRect(x, roadY + (LANE_HEIGHT * 2) - 6, 80, 12);
     }
 
-    // 4. Render Entities
+    // 5. Render Entities
     const renderList = [...obstaclesRef.current, { ...player, type: 'player' } as any];
     renderList.sort((a, b) => a.y - b.y);
 
@@ -468,7 +673,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
       }
     });
 
-    // 5. Particles (Smoke & Debris)
+    // 6. Particles (Smoke & Debris)
     particlesRef.current.forEach(p => {
        ctx.fillStyle = p.color;
        ctx.beginPath();
@@ -476,7 +681,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
        ctx.fill();
     });
 
-    // 6. Speed Lines
+    // 7. Speed Lines
     if (player.speed > MAX_SPEED * 0.7) {
        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
        ctx.lineWidth = 3;
@@ -630,144 +835,129 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState,
     ctx.rotate(tilt * 0.5); 
     ctx.translate(-cx, -cy);
 
-    const truckBaseX = x;
-    const truckBaseY = y + bounce;
+    const truckBaseX = x + 20;
+    const truckBaseY = y + bounce + 10;
 
     // -- SHADOW --
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath();
-    ctx.ellipse(cx, cy + 45, 90, 15, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx + 10, cy + 45, 90, 15, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // -- TRAILER --
+    // === TRAILER (Short and Chubby) ===
     const trailerX = truckBaseX;
-    const trailerY = truckBaseY - 10;
-    const trailerW = 120;
-    const trailerH = 80;
+    const trailerY = truckBaseY - 30;
+    const trailerW = 80;
+    const trailerH = 90;
     
-    // Main Container
-    ctx.fillStyle = '#feca57'; // Pastel Yellow
+    // Main Body
+    ctx.fillStyle = '#feca57'; // Yellow
     drawRoundedRect(ctx, trailerX, trailerY, trailerW, trailerH, 12);
-    
-    // Vertical Ribs
-    ctx.fillStyle = '#ff9f43'; // Darker Orange/Yellow
-    const ribW = 12;
-    ctx.fillRect(trailerX + 20, trailerY, ribW, trailerH);
-    ctx.fillRect(trailerX + 55, trailerY, ribW, trailerH);
-    ctx.fillRect(trailerX + 90, trailerY, ribW, trailerH);
-    
-    // Roof Highlight
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.fillRect(trailerX + 5, trailerY + 2, trailerW - 10, 6);
-
-    // Chassis Frame
+    // Stripe
+    ctx.fillStyle = '#ff9f43';
+    ctx.fillRect(trailerX, trailerY + 35, trailerW, 20);
+    // Connection
     ctx.fillStyle = '#2d3436';
-    ctx.fillRect(trailerX + 15, trailerY + trailerH - 5, trailerW - 30, 12);
+    ctx.fillRect(trailerX + trailerW, trailerY + 60, 20, 15);
 
-    // -- CONNECTOR --
-    ctx.fillStyle = '#636e72';
-    ctx.fillRect(truckBaseX + trailerW - 5, truckBaseY + 50, 20, 10);
 
-    // -- CABIN --
-    const cabX = truckBaseX + 115;
-    const cabY = truckBaseY + 10;
-    const cabW = 60;
-    const cabH = 60;
+    // === CAB (Cute Rounded "Ivan") ===
+    const cabX = truckBaseX + 90;
+    const cabY = truckBaseY - 25;
+    const cabW = 75;
+    const cabH = 85;
 
-    // Cab Body
-    ctx.fillStyle = '#ff6b6b'; // Pastel Red
-    drawRoundedRect(ctx, cabX, cabY, cabW, cabH, 10);
+    // 1. Cap/Visor
+    ctx.fillStyle = '#0984e3'; // Bright Blue
+    ctx.beginPath();
+    ctx.roundRect(cabX, cabY - 10, cabW, 20, 10);
+    ctx.fill();
+    // Brim
+    ctx.fillStyle = '#0984e3';
+    ctx.beginPath();
+    ctx.moveTo(cabX + cabW, cabY);
+    ctx.quadraticCurveTo(cabX + cabW + 20, cabY + 5, cabX + cabW, cabY + 15);
+    ctx.lineTo(cabX + cabW - 5, cabY + 15);
+    ctx.fill();
+
+    // 2. Main Body (Red Blob)
+    ctx.fillStyle = '#ff6b6b'; // Red
+    drawRoundedRect(ctx, cabX, cabY, cabW, cabH, 16);
+
+    // 3. Windshield / Eye Area
+    ctx.fillStyle = '#dff9fb'; // Very light cyan
+    // Large rounded rect for glass
+    ctx.beginPath();
+    ctx.roundRect(cabX + 10, cabY + 10, cabW - 10, 40, 8);
+    ctx.fill();
     
-    // Aerodynamic Roof Spoiler
-    ctx.beginPath();
-    ctx.moveTo(cabX, cabY + 5);
-    ctx.lineTo(cabX + cabW, cabY + 5);
-    ctx.lineTo(cabX + cabW - 5, cabY - 18);
-    ctx.lineTo(cabX + 5, cabY - 18);
-    ctx.fill();
-
-    // Side Window
-    ctx.fillStyle = '#48dbfb'; // Sky Blue
-    ctx.beginPath();
-    ctx.roundRect(cabX + 35, cabY + 10, 25, 25, [2, 6, 6, 2]);
-    ctx.fill();
+    // 4. Eyes (The Character)
+    const eyeY = cabY + 30;
+    // Left Eye
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.ellipse(cabX + 45, eyeY, 12, 16, 0, 0, Math.PI*2); ctx.fill();
+    // Right Eye
+    ctx.beginPath(); ctx.ellipse(cabX + 68, eyeY, 12, 16, 0, 0, Math.PI*2); ctx.fill();
     
-    // Window Glint
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.beginPath();
-    ctx.moveTo(cabX + 40, cabY + 10);
-    ctx.lineTo(cabX + 52, cabY + 10);
-    ctx.lineTo(cabX + 37, cabY + 35);
-    ctx.lineTo(cabX + 35, cabY + 35);
-    ctx.fill();
-
-    // Front Grill
+    // Pupils (Looking forward)
+    ctx.fillStyle = '#2d3436';
+    const bobEye = Math.sin(frameCountRef.current * 0.1) * 2;
+    ctx.beginPath(); ctx.arc(cabX + 48 + bobEye, eyeY, 5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cabX + 71 + bobEye, eyeY, 5, 0, Math.PI*2); ctx.fill();
+    
+    // 5. Grill / Smile
     ctx.fillStyle = '#dfe6e9'; // Silver
-    drawRoundedRect(ctx, cabX + cabW - 6, cabY + 40, 6, 18, 2);
-    
-    // Headlight
-    ctx.fillStyle = '#feca57'; // Yellow Light
     ctx.beginPath();
-    ctx.arc(cabX + cabW - 2, cabY + 54, 4, 0, Math.PI*2);
+    // Smile shape grill
+    ctx.roundRect(cabX + 40, cabY + 55, 35, 20, 10);
     ctx.fill();
-    ctx.shadowBlur = 8;
-    ctx.shadowColor = '#feca57';
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Exhaust Pipe (Smoke Source)
+    // Grid lines
     ctx.fillStyle = '#b2bec3';
-    ctx.fillRect(cabX + 8, cabY - 28, 8, 35); // Vertical pipe
-    ctx.fillStyle = '#636e72'; 
-    ctx.beginPath();
-    ctx.ellipse(cabX + 12, cabY - 28, 6, 2, 0, 0, Math.PI*2); // Top opening
-    ctx.fill();
+    ctx.fillRect(cabX + 48, cabY + 55, 2, 20);
+    ctx.fillRect(cabX + 57, cabY + 55, 2, 20);
+    ctx.fillRect(cabX + 66, cabY + 55, 2, 20);
 
-    // -- WHEELS --
-    const wheelY = truckBaseY + 75;
-    const wheelRotation = -(playerRef.current.distance * 0.05);
+    // 6. Bumper
+    ctx.fillStyle = '#636e72';
+    drawRoundedRect(ctx, cabX + 35, cabY + 75, 45, 12, 6);
 
-    const drawFancyWheel = (wx: number, wy: number) => {
+
+    // === WHEELS (Big & Chunky) ===
+    const wheelY = truckBaseY + 65;
+    const wheelRotation = -(playerRef.current.distance * 0.08); // Faster spin for smaller wheels effect
+
+    const drawChunkyWheel = (wx: number, wy: number) => {
         ctx.save();
         ctx.translate(wx, wy);
         ctx.rotate(wheelRotation);
         
         // Tire
         ctx.fillStyle = '#2d3436';
-        ctx.beginPath();
-        ctx.arc(0, 0, 16, 0, Math.PI*2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 0, 22, 0, Math.PI*2); ctx.fill();
         
         // Rim
-        ctx.fillStyle = '#b2bec3'; 
-        ctx.beginPath();
-        ctx.arc(0, 0, 10, 0, Math.PI*2);
-        ctx.fill();
+        ctx.fillStyle = '#dfe6e9'; 
+        ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI*2); ctx.fill();
         
-        // Spokes
-        ctx.strokeStyle = '#636e72';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(-10, 0); ctx.lineTo(10, 0);
-        ctx.moveTo(0, -10); ctx.lineTo(0, 10);
-        ctx.stroke();
+        // Nut
+        ctx.fillStyle = '#ff7675'; // Red accent
+        ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI*2); ctx.fill();
         
-        // Center Nut
-        ctx.fillStyle = '#dfe6e9';
-        ctx.beginPath();
-        ctx.arc(0, 0, 4, 0, Math.PI*2);
-        ctx.fill();
+        // Spokes (Cute rounded)
+        ctx.fillStyle = '#636e72';
+        ctx.beginPath(); ctx.arc(0, -8, 2, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(8, 5, 2, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(-8, 5, 2, 0, Math.PI*2); ctx.fill();
 
         ctx.restore();
     };
 
     // Trailer Wheels
-    drawFancyWheel(trailerX + 30, wheelY);
-    drawFancyWheel(trailerX + 65, wheelY);
+    drawChunkyWheel(trailerX + 25, wheelY);
+    drawChunkyWheel(trailerX + 60, wheelY);
     
-    // Cab Wheels
-    drawFancyWheel(cabX + 25, wheelY);
-    drawFancyWheel(cabX + 55, wheelY);
+    // Cab Wheel
+    drawChunkyWheel(cabX + 40, wheelY);
 
     ctx.restore();
   };

@@ -12,8 +12,11 @@ export default function App() {
   const [coins, setCoins] = useState(0);
   const [lives, setLives] = useState(3);
   const [pauseIndex, setPauseIndex] = useState(0); // 0: Resume, 1: Quit
+  const [gameOverIndex, setGameOverIndex] = useState(0); // 0: Retry, 1: Menu
+  const [gameSessionId, setGameSessionId] = useState(0); // Track unique game sessions
   const inputLockRef = useRef(0); // Timestamp to prevent double input when switching states
   const prevPauseIndexRef = useRef(0);
+  const prevGameOverIndexRef = useRef(0);
   
   const getInput = useInput();
 
@@ -22,6 +25,7 @@ export default function App() {
       const newLives = prev - 1;
       if (newLives <= 0) {
         setGameState(GameState.GAME_OVER);
+        setGameOverIndex(0); // Reset selection
         return 0;
       }
       return newLives;
@@ -34,6 +38,7 @@ export default function App() {
     setScore(0);
     setCoins(0);
     setGameState(GameState.PLAYING);
+    setGameSessionId(prev => prev + 1); // Start a new session, triggering reset in GameCanvas
     inputLockRef.current = Date.now() + 200;
   };
   
@@ -54,11 +59,28 @@ export default function App() {
       
       const input = getInput();
 
-      if (gameState === GameState.MENU || gameState === GameState.GAME_OVER) {
+      if (gameState === GameState.MENU) {
         if (input.confirm || input.gas) {
           handleStart();
         }
-      } else if (gameState === GameState.PAUSED) {
+      } 
+      else if (gameState === GameState.GAME_OVER) {
+        // Navigation (Left/Right or Gas/Brake)
+        if (input.brake || input.up || (input.up && !input.down)) setGameOverIndex(0);
+        if (input.gas || input.down || (input.down && !input.up)) setGameOverIndex(1);
+        
+        if (prevGameOverIndexRef.current !== gameOverIndex) {
+            playSound('hover');
+            prevGameOverIndexRef.current = gameOverIndex;
+        }
+
+        if (input.confirm) {
+            playSound('select');
+            if (gameOverIndex === 0) handleStart();
+            else handleGameStateChange(GameState.MENU);
+        }
+      }
+      else if (gameState === GameState.PAUSED) {
         if (input.up) setPauseIndex(0);
         if (input.down) setPauseIndex(1);
         
@@ -87,7 +109,7 @@ export default function App() {
     }
     
     return () => clearInterval(interval);
-  }, [gameState, pauseIndex, getInput]);
+  }, [gameState, pauseIndex, gameOverIndex, getInput]);
 
   return (
     <div className="relative w-screen h-screen bg-neutral-900 flex items-center justify-center overflow-hidden">
@@ -100,13 +122,15 @@ export default function App() {
           setCoins={setCoins}
           onLifeLost={handleLifeLost}
           lives={lives}
+          gameSessionId={gameSessionId}
         />
         <UI 
           gameState={gameState} 
           score={score} 
-          coins={coins}
+          coins={coins} 
           lives={lives}
           pauseIndex={pauseIndex}
+          gameOverIndex={gameOverIndex}
           onStart={handleStart}
           onRestart={handleStart}
           onResume={() => { playSound('select'); handleGameStateChange(GameState.PLAYING); }}

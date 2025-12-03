@@ -1,16 +1,17 @@
 
 
+
 export const THEMES = [
   {
-    name: 'City Sunset',
-    sky: '#FF9A8B', // Pastel sunset gradient start (simulated with solid for now)
-    skyBottom: '#FF6A88',
-    ground: '#2D3436', // Dark ground
-    road: '#636e72', // Asphalt
+    name: 'Idyllic Suburbia',
+    sky: '#87CEEB', // Clear Sky Blue
+    skyBottom: '#E0F7FA', // Lighter horizon
+    ground: '#55efc4', // Manicured Grass
+    road: '#636e72', // Grey Asphalt
     stripe: '#dfe6e9',
     obstacle: '#ff7675', // Pastel Red
-    details: '#74b9ff', // Windows/Buildings
-    sceneryColor: '#a29bfe' // Purple buildings
+    details: '#00b894', // Bushes
+    sceneryColor: '#ffffff' // House base
   },
   {
     name: 'Sunny Village',

@@ -26,6 +26,21 @@ export interface Entity {
   collected?: boolean;
 }
 
+export interface SceneryEntity {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  type: 'house' | 'tree' | 'car' | 'mailbox' | 'cloud';
+  details?: {
+    roofColor?: string;
+    doorColor?: string;
+    carColor?: string;
+    hasGarage?: boolean;
+  };
+}
+
 export interface Particle {
   x: number;
   y: number;

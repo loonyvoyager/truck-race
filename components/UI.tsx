@@ -8,6 +8,7 @@ interface UIProps {
   score: number;
   lives: number;
   pauseIndex?: number;
+  gameOverIndex?: number;
   coins?: number;
   onStart: () => void;
   onRestart: () => void;
@@ -20,6 +21,7 @@ export const UI: React.FC<UIProps> = ({
   score, 
   lives, 
   pauseIndex = 0,
+  gameOverIndex = 0,
   coins = 0, 
   onStart, 
   onRestart,
@@ -155,13 +157,31 @@ export const UI: React.FC<UIProps> = ({
                </div>
            </div>
 
-           <button 
-             onClick={onRestart}
-             className="w-full py-8 bg-blue-500 text-white font-black text-4xl uppercase rounded-3xl border-b-[10px] border-blue-700 hover:bg-blue-400 hover:border-blue-600 hover:translate-y-1 active:translate-y-2 active:border-b-0 transition-all flex items-center justify-center gap-4 shadow-xl"
-           >
-             <RefreshCw size={40} strokeWidth={3} />
-             ЗАНОВО
-           </button>
+           <div className="flex gap-6 w-full">
+                <button 
+                  onClick={onRestart}
+                  className={`flex-1 py-8 rounded-3xl font-black text-4xl uppercase border-b-[10px] transition-all flex items-center justify-center gap-4 shadow-xl ${
+                    gameOverIndex === 0
+                    ? 'bg-blue-500 text-white border-blue-700 hover:bg-blue-400 hover:border-blue-600 scale-105'
+                    : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'
+                  }`}
+                >
+                  <RefreshCw size={40} strokeWidth={3} />
+                  ЗАНОВО
+                </button>
+
+                <button 
+                  onClick={onQuit}
+                  className={`flex-1 py-8 rounded-3xl font-black text-4xl uppercase border-b-[10px] transition-all flex items-center justify-center gap-4 shadow-xl ${
+                    gameOverIndex === 1
+                    ? 'bg-red-500 text-white border-red-700 hover:bg-red-400 hover:border-red-600 scale-105'
+                    : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200'
+                  }`}
+                >
+                  <Home size={40} strokeWidth={3} />
+                  МЕНЮ
+                </button>
+           </div>
         </div>
       </div>
     );
